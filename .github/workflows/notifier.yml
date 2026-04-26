@@ -13,8 +13,18 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install telepot requests beautifulsoup4
+      - name: Restore seen IDs cache
+        uses: actions/cache@v4
+        with:
+          path: seen_ids.json
+          key: seen-ids-cache
       - name: Run notifier
         run: python main.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           MY_TELEGRAM_ID: ${{ secrets.MY_TELEGRAM_ID }}
+      - name: Save seen IDs cache
+        uses: actions/cache@v4
+        with:
+          path: seen_ids.json
+          key: seen-ids-cache
