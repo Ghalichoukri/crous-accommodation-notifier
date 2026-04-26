@@ -1,0 +1,21 @@
+name: CROUS Notifier
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # toutes les 5 minutes
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - run: pip install poetry && poetry install
+      - run: poetry run python main.py
+        env:
+          MY_TELEGRAM_ID: ${{ secrets.MY_TELEGRAM_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SEARCH_URL: ${{ secrets.SEARCH_URL }}
