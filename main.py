@@ -91,7 +91,7 @@ if __name__ == "__main__":
     bot.getMe()
     logger.info("Bot OK")
 
-    seen_ids = load_seen_ids()
+    seen_ids = set()  # TEMP: force notification de tous les logements
     logger.info(f"Seen IDs loaded: {len(seen_ids)}")
 
     accommodations = fetch_accommodations()
