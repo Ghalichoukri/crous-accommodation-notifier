@@ -101,8 +101,7 @@ if __name__ == "__main__":
     bot.getMe()
     logger.info("Bot OK")
 
-    seen_ids = set()  # TEMP: enlever cette ligne après le premier test réussi
-    # seen_ids = load_seen_ids()
+    seen_ids = load_seen_ids()
     logger.info(f"Seen IDs: {len(seen_ids)}")
 
     accommodations = fetch_accommodations()
