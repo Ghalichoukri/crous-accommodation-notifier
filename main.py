@@ -14,10 +14,7 @@ logger = logging.getLogger("crous_notifier")
 
 SEARCH_URL = "https://trouverunlogement.lescrous.fr/api/v1/accommodations/search"
 # Île-de-France bounds
-BOUNDS = os.environ.get(
-    "SEARCH_BOUNDS",
-    "1.446289_49.242968_3.559570_48.117274"
-)
+BOUNDS = "1.4462445_49.241431_3.5592208_48.1201456"
 SEEN_FILE = Path("seen_ids.json")
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 MY_TELEGRAM_ID = os.environ["MY_TELEGRAM_ID"]
@@ -50,7 +47,7 @@ def fetch_accommodations() -> list:
     while True:
         params["page"] = page
         r = requests.get(
-            "https://trouverunlogement.lescrous.fr/api/v1/tools/38/accommodations",
+            "https://trouverunlogement.lescrous.fr/api/v1/tools/42/accommodations",
             params=params,
             headers=headers,
             timeout=30,
@@ -77,7 +74,7 @@ def format_message(item: dict) -> str:
     price = item.get("price", "?")
     area = item.get("area", "?")
     item_id = item.get("id", "")
-    url = f"https://trouverunlogement.lescrous.fr/tools/38/accommodations/{item_id}"
+    url = f"https://trouverunlogement.lescrous.fr/tools/42/accommodations/{item_id}"
     return (
         f"🏠 *Nouveau logement CROUS !*\n"
         f"📍 {name} - {city}\n"
