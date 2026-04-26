@@ -18,57 +18,66 @@ class Authenticator:
 
     def authenticate_driver(self, driver: WebDriver) -> None:
         logger.info("Authenticating to the CROUS website...")
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 20)
 
-        # Step 1: Go directly to login page
-        logger.info(f"Going to the login page: {settings.MSE_LOGIN_URL}")
-        driver.get(settings.MSE_LOGIN_URL)
+        # Aller directement sur trouverunlogement qui va rediriger vers login
+        logger.info("Going to trouverunlogement to trigger login redirect")
+        driver.get("https://trouverunlogement.lescrous.fr/mse/discovery/connect")
+        sleep(self.delay)
+        logger.info(f"Current URL after redirect: {driver.current_url}")
+
+        # Chercher le champ email avec plusieurs sélecteurs possibles
+        logger.info("Looking for email/username field")
+        selectors = [
+            (By.NAME, "j_username"),
+            (By.NAME, "username"),
+            (By.ID, "username"),
+            (By.ID, "email"),
+            (By.XPATH, "//input[@type='email']"),
+            (By.XPATH, "//input[@type='text']"),
+        ]
+
+        username_input = None
+        for by, selector in selectors:
+            try:
+                username_input = wait.until(EC.presence_of_element_located((by, selector)))
+                logger.info(f"Found username field with selector: {by}={selector}")
+                break
+            except Exception:
+                continue
+
+        if not username_input:
+            logger.error(f"Could not find username field. URL: {driver.current_url}")
+            logger.error(f"Page source: {driver.page_source[:3000]}")
+            raise Exception("Username field not found")
+
+        password_input = None
+        for by, selector in [(By.NAME, "j_password"), (By.NAME, "password"), (By.ID, "password"), (By.XPATH, "//input[@type='password']")]:
+            try:
+                password_input = driver.find_element(by, selector)
+                logger.info(f"Found password field with selector: {by}={selector}")
+                break
+            except Exception:
+                continue
+
+        if not password_input:
+            raise Exception("Password field not found")
+
+        username_input.send_keys(self.email)
+        password_input.send_keys(self.password)
+        logger.info("Submitting credentials")
+        password_input.send_keys(Keys.RETURN)
         sleep(self.delay)
 
-        # Step 2: Try multiple selectors for the MSE connect button
-        logger.info("Choosing the correct authentication method")
-        try:
-            mse_connect_button = wait.until(
-                EC.element_to_be_clickable((By.CLASS_NAME, "loginapp-button"))
-            )
-            driver.execute_script("arguments[0].click();", mse_connect_button)
-            sleep(self.delay)
-        except Exception:
-            logger.info("loginapp-button not found, trying alternative selectors")
-            try:
-                mse_connect_button = wait.until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Mon compte')]"))
-                )
-                driver.execute_script("arguments[0].click();", mse_connect_button)
-                sleep(self.delay)
-            except Exception:
-                logger.info("No intermediate button found, proceeding directly to credentials")
+        logger.info(f"URL after login: {driver.current_url}")
 
-        # Step 3: Input credentials
-        logger.info("Inputting credentials")
-        try:
-            username_input = wait.until(EC.presence_of_element_located((By.NAME, "j_username")))
-            password_input = driver.find_element(By.NAME, "j_password")
-            username_input.send_keys(self.email)
-            password_input.send_keys(self.password)
-            logger.info("Submitting the form")
-            password_input.send_keys(Keys.RETURN)
-            sleep(self.delay)
-        except Exception as e:
-            logger.error(f"Could not find credential fields: {e}")
-            logger.info(f"Current URL: {driver.current_url}")
-            logger.info(f"Page source snippet: {driver.page_source[:2000]}")
-            raise
-
-        # Step 4: Validate rules
+        # Validate rules
         self._validate_rules(driver)
 
-        # Step 5: Force update auth status
-        driver.get("https://trouverunlogement.lescrous.fr/mse/discovery/connect")
         logger.info("Successfully authenticated to the CROUS website")
 
     def _validate_rules(self, driver: WebDriver) -> None:
-        logger.info("Validating the rules of the CROUS website")
+        logger.info("Validating rules")
         driver.get("https://trouverunlogement.lescrous.fr/tools/36/rules")
         sleep(self.delay)
         try:
