@@ -1,10 +1,8 @@
 name: CROUS Notifier
-
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
-
 jobs:
   notify:
     runs-on: ubuntu-latest
@@ -28,4 +26,6 @@ jobs:
           MY_TELEGRAM_ID: ${{ secrets.MY_TELEGRAM_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SEARCH_URL: ${{ secrets.SEARCH_URL }}
+          MSE_EMAIL: ${{ secrets.MSE_EMAIL }}
+          MSE_PASSWORD: ${{ secrets.MSE_PASSWORD }}
           CHROME_BIN: /usr/bin/chromium-browser
