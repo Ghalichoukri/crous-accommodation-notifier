@@ -1,76 +1,110 @@
-import argparse
+import json
 import logging
 import os
-from typing import List
+import requests
 import telepot
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service as ChromiumService
-from selenium.webdriver.chrome.webdriver import WebDriver
-from src.authenticator import Authenticator
-from src.parser import Parser
-from src.models import UserConf
-from src.notification_builder import NotificationBuilder
-from src.settings import Settings
-from src.telegram_notifier import TelegramNotifier
+from pathlib import Path
 
 logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s: %(message)s",
     datefmt="%m/%d/%Y %I:%M:%S %p",
     level=logging.INFO,
 )
-logger = logging.getLogger("accommodation_notifier")
+logger = logging.getLogger("crous_notifier")
 
-def load_users_conf(settings: Settings) -> List[UserConf]:
-    return [
-        UserConf(
-            conf_title="Me",
-            telegram_id=settings.MY_TELEGRAM_ID,
-            search_url=settings.SEARCH_URL,
-            ignored_ids=[],
+SEARCH_URL = "https://trouverunlogement.lescrous.fr/api/v1/accommodations/search"
+# Île-de-France bounds
+BOUNDS = os.environ.get(
+    "SEARCH_BOUNDS",
+    "1.446289_49.242968_3.559570_48.117274"
+)
+SEEN_FILE = Path("seen_ids.json")
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+MY_TELEGRAM_ID = os.environ["MY_TELEGRAM_ID"]
+
+
+def load_seen_ids() -> set:
+    if SEEN_FILE.exists():
+        return set(json.loads(SEEN_FILE.read_text()))
+    return set()
+
+
+def save_seen_ids(ids: set):
+    SEEN_FILE.write_text(json.dumps(list(ids)))
+
+
+def fetch_accommodations() -> list:
+    bounds = BOUNDS.split("_")
+    params = {
+        "bounds[sw][lat]": bounds[3],
+        "bounds[sw][lng]": bounds[0],
+        "bounds[ne][lat]": bounds[1],
+        "bounds[ne][lng]": bounds[2],
+    }
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0",
+    }
+    all_items = []
+    page = 1
+    while True:
+        params["page"] = page
+        r = requests.get(
+            "https://trouverunlogement.lescrous.fr/api/v1/tools/38/accommodations",
+            params=params,
+            headers=headers,
+            timeout=30,
         )
-    ]
+        logger.info(f"Page {page} - status {r.status_code}")
+        if r.status_code != 200:
+            logger.error(f"API error: {r.text[:500]}")
+            break
+        data = r.json()
+        items = data.get("data", {}).get("items", [])
+        if not items:
+            break
+        all_items.extend(items)
+        total_pages = data.get("data", {}).get("nbPages", 1)
+        if page >= total_pages:
+            break
+        page += 1
+    return all_items
 
-def create_driver(headless: bool = True) -> WebDriver:
-    chrome_options = Options()
-    if headless:
-        logging.info("Running in headless mode")
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--disable-gpu")
-    else:
-        logging.info("Running in non-headless mode")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--no-sandbox")
-    return webdriver.Chrome(
-        options=chrome_options,
-        service=ChromiumService(
-            executable_path=os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver"),
-        ),
+
+def format_message(item: dict) -> str:
+    name = item.get("name", "Logement inconnu")
+    city = item.get("city", "")
+    price = item.get("price", "?")
+    area = item.get("area", "?")
+    item_id = item.get("id", "")
+    url = f"https://trouverunlogement.lescrous.fr/tools/38/accommodations/{item_id}"
+    return (
+        f"🏠 *Nouveau logement CROUS !*\n"
+        f"📍 {name} - {city}\n"
+        f"💶 {price}€/mois | {area}m²\n"
+        f"🔗 {url}"
     )
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Run the script in headless mode or not."
-    )
-    parser.add_argument(
-        "--no-headless",
-        action="store_true",
-        help="Run the script without headless mode",
-    )
-    args = parser.parse_args()
-    settings = Settings()
-    bot = telepot.Bot(token=settings.TELEGRAM_BOT_TOKEN)
+    bot = telepot.Bot(token=TELEGRAM_BOT_TOKEN)
     bot.getMe()
-    user_confs = load_users_conf(settings)
-    driver = create_driver(headless=not args.no_headless)
-    Authenticator(settings.MSE_EMAIL, settings.MSE_PASSWORD).authenticate_driver(driver)
-    parser = Parser(driver)
-    notification_builder = NotificationBuilder()
-    notifier = TelegramNotifier(bot)
-    for conf in user_confs:
-        logging.info(f"Handling configuration : {conf}")
-        search_results = parser.get_accommodations(conf.search_url)
-        notification = notification_builder.search_results_notification(search_results)
-        if notification:
-            notifier.send_notification(conf.telegram_id, notification)
-    driver.quit()
+    logger.info("Bot OK")
+
+    seen_ids = load_seen_ids()
+    logger.info(f"Seen IDs loaded: {len(seen_ids)}")
+
+    accommodations = fetch_accommodations()
+    logger.info(f"Found {len(accommodations)} accommodations")
+
+    new_ones = [a for a in accommodations if str(a.get("id")) not in seen_ids]
+    logger.info(f"New accommodations: {len(new_ones)}")
+
+    for item in new_ones:
+        msg = format_message(item)
+        bot.sendMessage(MY_TELEGRAM_ID, msg, parse_mode="Markdown")
+        seen_ids.add(str(item.get("id")))
+        logger.info(f"Notified: {item.get('name')}")
+
+    save_seen_ids(seen_ids)
+    logger.info("Done")
