@@ -2,20 +2,30 @@ name: CROUS Notifier
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # toutes les 5 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install poetry && poetry install
-      - run: poetry run python main.py
+      - name: Install Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+      - name: Install dependencies
+        run: |
+          pip install poetry
+          poetry lock --no-cache --regenerate
+          poetry install --no-root
+      - name: Run notifier
+        run: poetry run python main.py
         env:
           MY_TELEGRAM_ID: ${{ secrets.MY_TELEGRAM_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SEARCH_URL: ${{ secrets.SEARCH_URL }}
+          CHROME_BIN: /usr/bin/chromium-browser
