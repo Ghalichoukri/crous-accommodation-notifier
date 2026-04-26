@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install telepot requests
+        run: pip install telepot requests beautifulsoup4
       - name: Run notifier
         run: python main.py
         env:
