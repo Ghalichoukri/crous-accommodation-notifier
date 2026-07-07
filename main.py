@@ -49,37 +49,28 @@ def fetch_accommodations() -> list:
         if r.status_code != 200:
             break
         soup = BeautifulSoup(r.text, "html.parser")
-        items = soup.select("ul li a[href*='/accommodations/']")
+
+        # Les logements sont dans des h3 > a
+        items = soup.select("h3 a[href*='/accommodations/']")
+        logger.info(f"Found {len(items)} on page {page}")
+
         if not items:
-            # Try alternative selector
-            items = soup.select("a[href*='/tools/42/accommodations/']")
-        
-        found_on_page = []
+            break
+
         for item in items:
             href = item.get("href", "")
-            if "/accommodations/" not in href:
-                continue
             acc_id = href.split("/accommodations/")[-1].strip("/")
             if not acc_id.isdigit():
                 continue
-            name = item.select_one("h3, h2, .title")
-            name_text = name.get_text(strip=True) if name else href
-            price = item.select_one(".price, [class*='price']")
-            price_text = price.get_text(strip=True) if price else "?"
-            found_on_page.append({
+            name = item.get_text(strip=True)
+            accommodations.append({
                 "id": acc_id,
-                "name": name_text,
-                "price": price_text,
+                "name": name,
+                "price": "?",
                 "url": f"https://trouverunlogement.lescrous.fr/tools/42/accommodations/{acc_id}",
             })
 
-        logger.info(f"Found {len(found_on_page)} on page {page}")
-        if not found_on_page:
-            break
-        accommodations.extend(found_on_page)
-
-        # Check if there's a next page
-        next_btn = soup.select_one("a[rel='next'], .next a, [aria-label='Page suivante']")
+        next_btn = soup.select_one("[rel='next']")
         if not next_btn:
             break
         page += 1
