@@ -49,8 +49,8 @@ def fetch_accommodations() -> list:
         if r.status_code != 200:
             break
         soup = BeautifulSoup(r.text, "html.parser")
+        logger.info(f"HTML snippet: {r.text[:2000]}")
 
-        # Les logements sont dans des h3 > a
         items = soup.select("h3 a[href*='/accommodations/']")
         logger.info(f"Found {len(items)} on page {page}")
 
@@ -99,6 +99,19 @@ if __name__ == "__main__":
     logger.info(f"Total found: {len(accommodations)}")
 
     new_ones = [a for a in accommodations if a["id"] not in seen_ids]
+    logger.info(f"New: {len(new_ones)}")
+
+    for item in new_ones:
+        msg = format_message(item)
+        try:
+            bot.sendMessage(MY_TELEGRAM_ID, msg, parse_mode="Markdown")
+            logger.info(f"Notified: {item['name']}")
+        except Exception as e:
+            logger.error(f"Telegram error: {e}")
+        seen_ids.add(item["id"])
+
+    save_seen_ids(seen_ids)
+    logger.info("Done")    new_ones = [a for a in accommodations if a["id"] not in seen_ids]
     logger.info(f"New: {len(new_ones)}")
 
     for item in new_ones:
