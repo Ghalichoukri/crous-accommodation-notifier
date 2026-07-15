@@ -18,6 +18,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
 CROUS_URLS_RAW = os.getenv("CROUS_URLS", "")
+SEND_STATUS_EVERY_CHECK = os.getenv("SEND_STATUS_EVERY_CHECK", "false").lower() == "true"
 
 SEEN_FILE = "seen_accommodations.json"
 
@@ -346,6 +347,7 @@ def format_accommodation_message(accommodation):
 def check_once(crous_targets, seen, first_run=False):
     total_found = 0
     total_new = 0
+    zone_counts = []
 
     for target in crous_targets:
         url = target["url"]
@@ -354,9 +356,12 @@ def check_once(crous_targets, seen, first_run=False):
         logging.info("Vérification de %s", label)
 
         accommodations = fetch_all_accommodations(url, label)
-        total_found += len(accommodations)
+        found_count = len(accommodations)
 
-        logging.info("%s: %s logements trouvés", label, len(accommodations))
+        total_found += found_count
+        zone_counts.append((label, found_count))
+
+        logging.info("%s: %s logements trouvés", label, found_count)
 
         for accommodation in accommodations:
             accommodation_id = accommodation["id"]
@@ -366,8 +371,6 @@ def check_once(crous_targets, seen, first_run=False):
 
             seen.add(accommodation_id)
 
-            # Au premier lancement, on enregistre seulement les logements existants
-            # pour éviter de recevoir 20 anciennes notifs d'un coup.
             if first_run:
                 continue
 
@@ -376,13 +379,26 @@ def check_once(crous_targets, seen, first_run=False):
             message = format_accommodation_message(accommodation)
             send_telegram_message(message)
 
-            # Petite pause pour éviter d'envoyer trop vite
             time.sleep(1)
 
     save_seen(seen)
 
-    return total_found, total_new
+    if SEND_STATUS_EVERY_CHECK:
+        lines = [
+            "📊 <b>Test CROUS terminé</b>",
+            "",
+        ]
 
+        for label, count in zone_counts:
+            lines.append(f"📍 <b>{label}</b> : {count} logement(s) trouvé(s)")
+
+        lines.append("")
+        lines.append(f"🆕 Nouveaux logements : {total_new}")
+        lines.append(f"🏠 Total détecté : {total_found}")
+
+        send_telegram_message("\n".join(lines))
+
+    return total_found, total_new
 
 def main():
     logging.info("Démarrage du bot CROUS Telegram.")
