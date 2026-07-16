@@ -32,6 +32,7 @@ NOTIFY_ALL_AVAILABLE = os.getenv("NOTIFY_ALL_AVAILABLE", "true").lower() == "tru
 
 HEARTBEAT_INTERVAL_MINUTES = int(os.getenv("HEARTBEAT_INTERVAL_MINUTES", "60"))
 SEND_START_MESSAGE = os.getenv("SEND_START_MESSAGE", "false").lower() == "true"
+SEND_HEARTBEAT_AT_END = os.getenv("SEND_HEARTBEAT_AT_END", "true").lower() == "true"
 
 CROUS_URLS_RAW = os.getenv("CROUS_URLS", "").strip()
 
@@ -588,12 +589,12 @@ def main():
 
     driver = create_driver()
 
+    last_total_found = 0
+    last_total_new = 0
+    loop_count = 0
+
     try:
         end_time = time.time() + RUN_MINUTES * 60
-        next_heartbeat_time = time.time() + HEARTBEAT_INTERVAL_MINUTES * 60
-
-        last_zone_counts = []
-        last_total_found = 0
 
         while True:
             logging.info("Nouvelle boucle de vérification.")
@@ -605,6 +606,8 @@ def main():
             )
 
             last_total_found = total_found
+            last_total_new += total_new
+            loop_count += 1
 
             logging.info(
                 "Check terminé: %s logements trouvés, %s nouveaux.",
@@ -614,25 +617,24 @@ def main():
 
             current_time = time.time()
 
-            if current_time >= next_heartbeat_time:
-                logging.info("Envoi du heartbeat horaire.")
-
-                # Recalcule rapide des compteurs depuis le dernier check via SEND_STATUS non nécessaire
-                # Ici on envoie simplement un message de vie avec le total connu.
-                send_telegram_message(
-                    "✅ <b>Bot CROUS toujours actif</b>\n\n"
-                    f"📍 Zones surveillées : {labels}\n"
-                    f"🏠 Total détecté au dernier check : {last_total_found}\n"
-                    "🔔 Je notifierai seulement les nouveaux logements."
-                )
-
-                next_heartbeat_time = current_time + HEARTBEAT_INTERVAL_MINUTES * 60
-
             if current_time >= end_time:
                 logging.info("Fin de la période RUN_MINUTES.")
                 break
 
             time.sleep(CHECK_INTERVAL_SECONDS)
+
+        if SEND_HEARTBEAT_AT_END:
+            now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+            send_telegram_message(
+                "✅ <b>Bot CROUS toujours actif</b>\n\n"
+                f"🕒 Dernière vérification : {now}\n"
+                f"📍 Zones surveillées : {labels}\n"
+                f"🔁 Nombre de vérifications cette heure : {loop_count}\n"
+                f"🏠 Total détecté au dernier check : {last_total_found}\n"
+                f"🆕 Nouveaux logements envoyés cette heure : {last_total_new}\n\n"
+                "🔔 Je notifierai seulement les nouveaux logements."
+            )
 
     except Exception as error:
         logging.exception("Erreur inattendue: %s", error)
