@@ -14,7 +14,6 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    # Sur GitHub Actions, ce n'est pas grave si dotenv n'est pas installé
     pass
 
 
@@ -57,7 +56,6 @@ logging.basicConfig(
 
 # =========================
 # URLS PAR DEFAUT
-# Si CROUS_URLS n'est pas configuré dans GitHub Secrets
 # =========================
 
 DEFAULT_CROUS_TARGETS = [
@@ -94,11 +92,8 @@ def clean_text(text):
 
 def parse_crous_urls(raw_value):
     """
-    Format attendu :
+    Format attendu dans CROUS_URLS :
     url|NomVille,url|NomVille,url|NomVille
-
-    Exemple :
-    https://...Angers|Angers,https://...Lyon|Lyon
     """
 
     if not raw_value:
@@ -107,9 +102,7 @@ def parse_crous_urls(raw_value):
 
     targets = []
 
-    parts = raw_value.split(",")
-
-    for part in parts:
+    for part in raw_value.split(","):
         part = part.strip()
 
         if not part:
@@ -211,8 +204,10 @@ def extract_surface(text):
         text,
         re.IGNORECASE,
     )
+
     if match:
         return match.group(1)
+
     return ""
 
 
@@ -242,33 +237,38 @@ def fetch_crous_page(url):
 # PARSING CROUS
 # =========================
 
-def looks_like_accommodation_block(text):
-    lower = text.lower()
+def extract_result_count_from_page(html):
+    """
+    Détecte le nombre officiel affiché par CROUS :
+    Exemple :
+    "2 logements trouvés pour Agen (47000)"
+    """
 
-    if "€" not in text:
-        return False
+    soup = BeautifulSoup(html, "html.parser")
+    page_text = clean_text(soup.get_text(" "))
 
-    if "logements trouvés" in lower:
-        return False
+    patterns = [
+        r"(\d+)\s+logement(?:s)?\s+trouv(?:é|e|és|ées)",
+        r"(\d+)\s+résultat(?:s)?",
+    ]
 
-    if "afficher sur une carte" in lower:
-        return False
+    for pattern in patterns:
+        match = re.search(pattern, page_text, re.IGNORECASE)
 
-    if "lancer une recherche" in lower:
-        return False
+        if match:
+            return int(match.group(1))
 
-    if "mon logement" in lower and "résultats de recherche" in lower:
-        return False
-
-    if len(text) < 25:
-        return False
-
-    return True
+    return 0
 
 
 def extract_accommodations_from_page(html, page_url, city_label):
-    soup = BeautifulSoup(html, "html.parser")
+    """
+    Essaie d'extraire les cartes logement.
+    Si les détails ne sont pas récupérables, le nombre sera quand même détecté
+    avec extract_result_count_from_page().
+    """
 
+    soup = BeautifulSoup(html, "html.parser")
     page_text = clean_text(soup.get_text(" "))
 
     if "Identification" in page_text and "Mot de passe" in page_text:
@@ -276,31 +276,47 @@ def extract_accommodations_from_page(html, page_url, city_label):
         return []
 
     accommodations = {}
-    tags = soup.find_all(["article", "li", "div", "section"])
 
-    for tag in tags:
-        block_text = clean_text(tag.get_text(" "))
+    price_nodes = soup.find_all(string=re.compile(r"\d+(?:[,.]\d+)?\s*€"))
 
-        if not looks_like_accommodation_block(block_text):
+    for price_node in price_nodes:
+        tag = price_node.parent
+
+        best_block = None
+        best_text = ""
+
+        for _ in range(10):
+            if tag is None:
+                break
+
+            block_text = clean_text(tag.get_text(" "))
+
+            has_price = bool(extract_price(block_text))
+            has_surface = bool(extract_surface(block_text))
+            good_size = 20 <= len(block_text) <= 1500
+
+            if has_price and has_surface and good_size:
+                best_block = tag
+                best_text = block_text
+                break
+
+            tag = tag.parent
+
+        if best_block is None:
             continue
 
-        price = extract_price(block_text)
-        surface = extract_surface(block_text)
+        price = extract_price(best_text)
+        surface = extract_surface(best_text)
 
-        if not price:
-            continue
-
-        link = ""
-        a_tag = tag.find("a", href=True)
+        link = page_url
+        a_tag = best_block.find("a", href=True)
 
         if a_tag:
             link = urljoin(page_url, a_tag["href"])
-        else:
-            link = page_url
 
         lines = [
             clean_text(line)
-            for line in tag.get_text("\n").split("\n")
+            for line in best_block.get_text("\n").split("\n")
             if clean_text(line)
         ]
 
@@ -316,10 +332,22 @@ def extract_accommodations_from_page(html, page_url, city_label):
             if "m²" in line:
                 continue
 
+            if "logement" in lower_line and "trouvé" in lower_line:
+                continue
+
+            if "afficher sur une carte" in lower_line:
+                continue
+
+            if "page précédente" in lower_line or "page suivante" in lower_line:
+                continue
+
             if "individuel" in lower_line or "colocation" in lower_line or "couple" in lower_line:
                 continue
 
             if "wc" in lower_line or "douche" in lower_line or "frigo" in lower_line:
+                continue
+
+            if "lit simple" in lower_line or "lits simples" in lower_line:
                 continue
 
             if not title:
@@ -331,7 +359,7 @@ def extract_accommodations_from_page(html, page_url, city_label):
                 break
 
         if not title:
-            title = block_text[:80]
+            title = f"Logement CROUS {city_label}"
 
         accommodation_id = create_accommodation_id(
             city_label=city_label,
@@ -350,7 +378,7 @@ def extract_accommodations_from_page(html, page_url, city_label):
             "surface": surface,
             "address": address,
             "link": link,
-            "raw": block_text,
+            "raw": best_text,
         }
 
     return list(accommodations.values())
@@ -372,6 +400,7 @@ def fetch_all_accommodations(start_url, city_label):
     all_accommodations = []
     visited_pages = set()
     current_url = start_url
+    page_result_count = 0
 
     for _ in range(5):
         if current_url in visited_pages:
@@ -389,6 +418,11 @@ def fetch_all_accommodations(start_url, city_label):
                 f"URL : {current_url}"
             )
             break
+
+        count_from_page = extract_result_count_from_page(html)
+
+        if count_from_page > page_result_count:
+            page_result_count = count_from_page
 
         accommodations = extract_accommodations_from_page(
             html=html,
@@ -410,11 +444,11 @@ def fetch_all_accommodations(start_url, city_label):
     for accommodation in all_accommodations:
         unique[accommodation["id"]] = accommodation
 
-    return list(unique.values())
+    return list(unique.values()), page_result_count
 
 
 # =========================
-# MESSAGES
+# MESSAGES TELEGRAM
 # =========================
 
 def format_accommodation_message(accommodation):
@@ -464,6 +498,17 @@ def send_status_message(zone_counts, total_found, total_new):
     send_telegram_message("\n".join(lines))
 
 
+def send_fallback_availability_message(label, found_count, url):
+    send_telegram_message(
+        "🏠 <b>Logement CROUS disponible</b>\n\n"
+        f"📍 <b>Zone :</b> {label}\n"
+        f"🔢 <b>Nombre détecté :</b> {found_count}\n\n"
+        "Le bot a détecté des logements disponibles sur la page CROUS, "
+        "mais les détails n'ont pas pu être extraits automatiquement.\n\n"
+        f"🔗 {url}"
+    )
+
+
 # =========================
 # CHECK PRINCIPAL
 # =========================
@@ -479,14 +524,21 @@ def check_once(crous_targets, seen):
 
         logging.info("Vérification de %s", label)
 
-        accommodations = fetch_all_accommodations(url, label)
-        found_count = len(accommodations)
+        accommodations, page_count = fetch_all_accommodations(url, label)
+
+        found_count = max(len(accommodations), page_count)
 
         total_found += found_count
         zone_counts.append((label, found_count))
 
-        logging.info("%s: %s logements trouvés", label, found_count)
+        logging.info(
+            "%s: %s logement(s) trouvé(s), %s détail(s) extrait(s)",
+            label,
+            found_count,
+            len(accommodations),
+        )
 
+        # Cas 1 : détails extraits
         for accommodation in accommodations:
             accommodation_id = accommodation["id"]
 
@@ -500,6 +552,23 @@ def check_once(crous_targets, seen):
                 message = format_accommodation_message(accommodation)
                 send_telegram_message(message)
                 time.sleep(1)
+
+        # Cas 2 : la page affiche des logements,
+        # mais le parser n'a pas réussi à extraire les détails
+        if found_count > 0 and len(accommodations) == 0:
+            fallback_id = hashlib.sha256(
+                f"{label}|{url}|{found_count}".encode("utf-8")
+            ).hexdigest()
+
+            if fallback_id not in seen:
+                seen.add(fallback_id)
+                total_new += found_count
+
+                send_fallback_availability_message(
+                    label=label,
+                    found_count=found_count,
+                    url=url,
+                )
 
     save_seen(seen)
 
