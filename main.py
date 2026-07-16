@@ -10,11 +10,11 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
 # =========================
@@ -91,11 +91,6 @@ def clean_text(text):
 
 
 def parse_crous_urls(raw_value):
-    """
-    Format attendu dans CROUS_URLS :
-    url|NomVille,url|NomVille,url|NomVille
-    """
-
     if not raw_value:
         logging.warning("CROUS_URLS vide. Utilisation des URLs par défaut.")
         return DEFAULT_CROUS_TARGETS
@@ -211,26 +206,45 @@ def extract_surface(text):
     return ""
 
 
-def fetch_crous_page(url):
+# =========================
+# SELENIUM
+# =========================
+
+def create_driver():
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--lang=fr-FR")
+    chrome_options.add_argument(f"user-agent={HEADERS['User-Agent']}")
+
+    driver = webdriver.Chrome(options=chrome_options)
+    return driver
+
+
+def fetch_rendered_page(driver, url):
+    logging.info("Ouverture Selenium: %s", url)
+
+    driver.get(url)
+
     try:
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=30,
-            allow_redirects=True,
+        WebDriverWait(driver, 15).until(
+            lambda d: "logement" in d.page_source.lower()
         )
+    except Exception:
+        logging.warning("Timeout Selenium, récupération quand même du HTML.")
 
-        logging.info("CROUS status %s pour %s", response.status_code, url)
-        logging.info("URL finale: %s", response.url)
+    time.sleep(3)
 
-        if response.status_code != 200:
-            return None, response.status_code, response.url
+    html = driver.page_source
+    final_url = driver.current_url
 
-        return response.text, response.status_code, response.url
+    logging.info("URL finale Selenium: %s", final_url)
+    logging.info("Taille HTML rendu: %s", len(html))
 
-    except requests.RequestException as error:
-        logging.error("Erreur requête CROUS: %s", error)
-        return None, None, url
+    return html, final_url
 
 
 # =========================
@@ -238,17 +252,14 @@ def fetch_crous_page(url):
 # =========================
 
 def extract_result_count_from_page(html):
-    """
-    Détecte le nombre officiel affiché par CROUS :
-    Exemple :
-    "2 logements trouvés pour Agen (47000)"
-    """
-
     soup = BeautifulSoup(html, "html.parser")
     page_text = clean_text(soup.get_text(" "))
 
+    logging.info("Extrait texte page: %s", page_text[:500])
+
     patterns = [
         r"(\d+)\s+logement(?:s)?\s+trouv(?:é|e|és|ées)",
+        r"(\d+)\s+logement(?:s)?\s+trouve(?:s)?",
         r"(\d+)\s+résultat(?:s)?",
     ]
 
@@ -262,12 +273,6 @@ def extract_result_count_from_page(html):
 
 
 def extract_accommodations_from_page(html, page_url, city_label):
-    """
-    Essaie d'extraire les cartes logement.
-    Si les détails ne sont pas récupérables, le nombre sera quand même détecté
-    avec extract_result_count_from_page().
-    """
-
     soup = BeautifulSoup(html, "html.parser")
     page_text = clean_text(soup.get_text(" "))
 
@@ -279,13 +284,15 @@ def extract_accommodations_from_page(html, page_url, city_label):
 
     price_nodes = soup.find_all(string=re.compile(r"\d+(?:[,.]\d+)?\s*€"))
 
+    logging.info("Prix détectés dans HTML: %s", len(price_nodes))
+
     for price_node in price_nodes:
         tag = price_node.parent
 
         best_block = None
         best_text = ""
 
-        for _ in range(10):
+        for _ in range(12):
             if tag is None:
                 break
 
@@ -293,12 +300,14 @@ def extract_accommodations_from_page(html, page_url, city_label):
 
             has_price = bool(extract_price(block_text))
             has_surface = bool(extract_surface(block_text))
-            good_size = 20 <= len(block_text) <= 1500
+            good_size = 20 <= len(block_text) <= 2000
 
-            if has_price and has_surface and good_size:
+            if has_price and good_size:
                 best_block = tag
                 best_text = block_text
-                break
+
+                if has_surface:
+                    break
 
             tag = tag.parent
 
@@ -384,64 +393,20 @@ def extract_accommodations_from_page(html, page_url, city_label):
     return list(accommodations.values())
 
 
-def get_next_page_url(html, current_url):
-    soup = BeautifulSoup(html, "html.parser")
+def fetch_all_accommodations(driver, start_url, city_label):
+    html, final_url = fetch_rendered_page(driver, start_url)
 
-    for a_tag in soup.find_all("a", href=True):
-        label = clean_text(a_tag.get_text(" ")).lower()
+    page_result_count = extract_result_count_from_page(html)
 
-        if "suivant" in label or "page suivante" in label:
-            return urljoin(current_url, a_tag["href"])
-
-    return None
-
-
-def fetch_all_accommodations(start_url, city_label):
-    all_accommodations = []
-    visited_pages = set()
-    current_url = start_url
-    page_result_count = 0
-
-    for _ in range(5):
-        if current_url in visited_pages:
-            break
-
-        visited_pages.add(current_url)
-
-        html, status_code, final_url = fetch_crous_page(current_url)
-
-        if html is None:
-            send_telegram_message(
-                "⚠️ <b>Erreur CROUS</b>\n\n"
-                f"📍 Zone : {city_label}\n"
-                f"Status : {status_code}\n"
-                f"URL : {current_url}"
-            )
-            break
-
-        count_from_page = extract_result_count_from_page(html)
-
-        if count_from_page > page_result_count:
-            page_result_count = count_from_page
-
-        accommodations = extract_accommodations_from_page(
-            html=html,
-            page_url=final_url,
-            city_label=city_label,
-        )
-
-        all_accommodations.extend(accommodations)
-
-        next_page = get_next_page_url(html, final_url)
-
-        if not next_page:
-            break
-
-        current_url = next_page
+    accommodations = extract_accommodations_from_page(
+        html=html,
+        page_url=final_url,
+        city_label=city_label,
+    )
 
     unique = {}
 
-    for accommodation in all_accommodations:
+    for accommodation in accommodations:
         unique[accommodation["id"]] = accommodation
 
     return list(unique.values()), page_result_count
@@ -503,8 +468,7 @@ def send_fallback_availability_message(label, found_count, url):
         "🏠 <b>Logement CROUS disponible</b>\n\n"
         f"📍 <b>Zone :</b> {label}\n"
         f"🔢 <b>Nombre détecté :</b> {found_count}\n\n"
-        "Le bot a détecté des logements disponibles sur la page CROUS, "
-        "mais les détails n'ont pas pu être extraits automatiquement.\n\n"
+        "Le bot a détecté des logements disponibles sur la page CROUS.\n\n"
         f"🔗 {url}"
     )
 
@@ -513,7 +477,7 @@ def send_fallback_availability_message(label, found_count, url):
 # CHECK PRINCIPAL
 # =========================
 
-def check_once(crous_targets, seen):
+def check_once(driver, crous_targets, seen):
     total_found = 0
     total_new = 0
     zone_counts = []
@@ -524,7 +488,17 @@ def check_once(crous_targets, seen):
 
         logging.info("Vérification de %s", label)
 
-        accommodations, page_count = fetch_all_accommodations(url, label)
+        try:
+            accommodations, page_count = fetch_all_accommodations(driver, url, label)
+        except Exception as error:
+            logging.exception("Erreur pendant la vérification de %s: %s", label, error)
+            send_telegram_message(
+                "⚠️ <b>Erreur pendant la vérification CROUS</b>\n\n"
+                f"📍 Zone : {label}\n"
+                f"Erreur : {error}\n\n"
+                f"🔗 {url}"
+            )
+            continue
 
         found_count = max(len(accommodations), page_count)
 
@@ -538,7 +512,6 @@ def check_once(crous_targets, seen):
             len(accommodations),
         )
 
-        # Cas 1 : détails extraits
         for accommodation in accommodations:
             accommodation_id = accommodation["id"]
 
@@ -553,8 +526,6 @@ def check_once(crous_targets, seen):
                 send_telegram_message(message)
                 time.sleep(1)
 
-        # Cas 2 : la page affiche des logements,
-        # mais le parser n'a pas réussi à extraire les détails
         if found_count > 0 and len(accommodations) == 0:
             fallback_id = hashlib.sha256(
                 f"{label}|{url}|{found_count}".encode("utf-8")
@@ -601,13 +572,16 @@ def main():
         f"⏳ Durée max de cette exécution : {RUN_MINUTES} minute(s)"
     )
 
-    end_time = time.time() + RUN_MINUTES * 60
+    driver = create_driver()
 
-    while True:
-        try:
+    try:
+        end_time = time.time() + RUN_MINUTES * 60
+
+        while True:
             logging.info("Nouvelle boucle de vérification.")
 
             total_found, total_new = check_once(
+                driver=driver,
                 crous_targets=crous_targets,
                 seen=seen,
             )
@@ -624,22 +598,19 @@ def main():
 
             time.sleep(CHECK_INTERVAL_SECONDS)
 
-        except KeyboardInterrupt:
-            logging.info("Arrêt manuel.")
-            send_telegram_message("🛑 Bot CROUS arrêté manuellement.")
-            break
+    except Exception as error:
+        logging.exception("Erreur inattendue: %s", error)
 
-        except Exception as error:
-            logging.exception("Erreur inattendue: %s", error)
+        send_telegram_message(
+            "⚠️ <b>Erreur inattendue dans le bot CROUS</b>\n\n"
+            f"{error}"
+        )
 
-            send_telegram_message(
-                "⚠️ <b>Erreur inattendue dans le bot CROUS</b>\n\n"
-                f"{error}"
-            )
+        raise
 
-            time.sleep(CHECK_INTERVAL_SECONDS)
-
-    logging.info("Fin du bot CROUS Telegram.")
+    finally:
+        driver.quit()
+        logging.info("Fin du bot CROUS Telegram.")
 
 
 if __name__ == "__main__":
