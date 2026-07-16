@@ -40,4 +40,5 @@ jobs:
           CHECK_INTERVAL_SECONDS: "60"
           RUN_MINUTES: "5"
           SEND_STATUS_EVERY_CHECK: "true"
+          NOTIFY_ALL_AVAILABLE: "true"
         run: python main.py
