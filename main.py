@@ -77,6 +77,10 @@ DEFAULT_CROUS_TARGETS = [
         "label": "Lyon",
         "url": "https://trouverunlogement.lescrous.fr/tools/47/search?bounds=4.7718134_45.8082628_4.8983774_45.7073666&locationName=Lyon",
     },
+    {
+        "label": "Agen",
+        "url": "https://trouverunlogement.lescrous.fr/tools/47/search?bounds=0.6026662_44.2237801_0.6576922_44.1782874&locationName=Agen+%2847000%29",
+    },
 ]
 
 
