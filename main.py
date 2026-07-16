@@ -17,6 +17,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))
+RUN_MINUTES = int(os.getenv("RUN_MINUTES", "0"))
 CROUS_URLS_RAW = os.getenv("CROUS_URLS", "")
 SEND_STATUS_EVERY_CHECK = os.getenv("SEND_STATUS_EVERY_CHECK", "false").lower() == "true"
 
