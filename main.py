@@ -115,6 +115,24 @@ def parse_crous_urls(raw_value):
 
     return targets
 
+def send_heartbeat_message(zone_counts, total_found):
+    now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+    lines = [
+        "✅ <b>Bot CROUS toujours actif</b>",
+        f"🕒 {now}",
+        "",
+        "📍 <b>Zones surveillées :</b>",
+    ]
+
+    for label, count in zone_counts:
+        lines.append(f"• {label} : {count} logement(s) détecté(s)")
+
+    lines.append("")
+    lines.append(f"🏠 Total actuel : {total_found}")
+    lines.append("🔔 Je notifierai seulement les nouveaux logements.")
+
+    send_telegram_message("\n".join(lines))
 
 def send_telegram_message(text):
     if not TELEGRAM_BOT_TOKEN:
