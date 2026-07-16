@@ -371,10 +371,6 @@ def check_once(crous_targets, seen, first_run=False):
                 continue
 
             seen.add(accommodation_id)
-
-            if first_run:
-                continue
-
             total_new += 1
 
             message = format_accommodation_message(accommodation)
