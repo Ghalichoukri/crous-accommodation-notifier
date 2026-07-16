@@ -564,7 +564,7 @@ def check_once(driver, crous_targets, seen):
             total_new=total_new,
         )
 
-    return total_found, total_new
+    return total_found, total_new, zone_counts
 
 
 # =========================
@@ -590,7 +590,10 @@ def main():
     driver = create_driver()
 
     last_total_found = 0
-    last_total_new = 0
+    max_total_found = 0
+    last_zone_counts = []
+    max_zone_counts = {}
+    total_new_this_run = 0
     loop_count = 0
 
     try:
@@ -599,15 +602,24 @@ def main():
         while True:
             logging.info("Nouvelle boucle de vérification.")
 
-            total_found, total_new = check_once(
+            total_found, total_new, zone_counts = check_once(
                 driver=driver,
                 crous_targets=crous_targets,
                 seen=seen,
             )
 
             last_total_found = total_found
-            last_total_new += total_new
+            last_zone_counts = zone_counts
+            total_new_this_run += total_new
             loop_count += 1
+
+            if total_found > max_total_found:
+                max_total_found = total_found
+
+            for label, count in zone_counts:
+                previous_max = max_zone_counts.get(label, 0)
+                if count > previous_max:
+                    max_zone_counts[label] = count
 
             logging.info(
                 "Check terminé: %s logements trouvés, %s nouveaux.",
@@ -626,15 +638,39 @@ def main():
         if SEND_HEARTBEAT_AT_END:
             now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-            send_telegram_message(
-                "✅ <b>Bot CROUS toujours actif</b>\n\n"
-                f"🕒 Dernière vérification : {now}\n"
-                f"📍 Zones surveillées : {labels}\n"
-                f"🔁 Nombre de vérifications cette heure : {loop_count}\n"
-                f"🏠 Total détecté au dernier check : {last_total_found}\n"
-                f"🆕 Nouveaux logements envoyés cette heure : {last_total_new}\n\n"
+            lines = [
+                "✅ <b>Bot CROUS toujours actif</b>",
+                "",
+                f"🕒 Dernière vérification : {now}",
+                f"📍 Zones surveillées : {labels}",
+                f"🔁 Nombre de vérifications cette heure : {loop_count}",
+                "",
+                "📊 <b>Dernier check :</b>",
+            ]
+
+            for label, count in last_zone_counts:
+                lines.append(f"• {label} : {count} logement(s)")
+
+            lines.extend([
+                "",
+                "📈 <b>Maximum vu pendant cette exécution :</b>",
+            ])
+
+            for target in crous_targets:
+                label = target["label"]
+                count = max_zone_counts.get(label, 0)
+                lines.append(f"• {label} : {count} logement(s)")
+
+            lines.extend([
+                "",
+                f"🏠 Total détecté au dernier check : {last_total_found}",
+                f"📈 Maximum total vu cette heure : {max_total_found}",
+                f"🆕 Nouveaux logements envoyés cette heure : {total_new_this_run}",
+                "",
                 "🔔 Je notifierai seulement les nouveaux logements."
-            )
+            ])
+
+            send_telegram_message("\n".join(lines))
 
     except Exception as error:
         logging.exception("Erreur inattendue: %s", error)
