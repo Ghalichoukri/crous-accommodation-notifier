@@ -3,30 +3,34 @@ name: CROUS Telegram Notifier
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 * * * *"
 
 concurrency:
   group: crous-bot
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   run-crous-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 65
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Restore seen cache
+        uses: actions/cache@v4
+        with:
+          path: seen_accommodations.json
+          key: crous-seen-${{ github.run_id }}
+          restore-keys: |
+            crous-seen-
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 python-dotenv
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -38,7 +42,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CROUS_URLS: ${{ secrets.CROUS_URLS }}
           CHECK_INTERVAL_SECONDS: "60"
-          RUN_MINUTES: "5"
-          SEND_STATUS_EVERY_CHECK: "true"
+          RUN_MINUTES: "60"
+          SEND_STATUS_EVERY_CHECK: "false"
           NOTIFY_ALL_AVAILABLE: "true"
+          HEARTBEAT_INTERVAL_MINUTES: "60"
+          SEND_START_MESSAGE: "false"
         run: python main.py
