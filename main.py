@@ -30,6 +30,9 @@ RUN_MINUTES = int(os.getenv("RUN_MINUTES", "5"))
 SEND_STATUS_EVERY_CHECK = os.getenv("SEND_STATUS_EVERY_CHECK", "false").lower() == "true"
 NOTIFY_ALL_AVAILABLE = os.getenv("NOTIFY_ALL_AVAILABLE", "true").lower() == "true"
 
+HEARTBEAT_INTERVAL_MINUTES = int(os.getenv("HEARTBEAT_INTERVAL_MINUTES", "60"))
+SEND_START_MESSAGE = os.getenv("SEND_START_MESSAGE", "false").lower() == "true"
+
 CROUS_URLS_RAW = os.getenv("CROUS_URLS", "").strip()
 
 SEEN_FILE = "seen_accommodations.json"
