@@ -35,5 +35,5 @@ jobs:
           CROUS_URLS: ${{ secrets.CROUS_URLS }}
           CHECK_INTERVAL_SECONDS: "60"
           RUN_MINUTES: "5"
-          SEND_STATUS_EVERY_CHECK: "false"
+          SEND_STATUS_EVERY_CHECK: "true"
         run: python main.py
