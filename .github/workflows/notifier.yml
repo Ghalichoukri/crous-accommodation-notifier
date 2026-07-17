@@ -3,8 +3,9 @@ name: CROUS Telegram Notifier
 on:
   workflow_dispatch:
   schedule:
-    # Toutes les 6h, à 14h15, 20h15, 02h15, 08h15 heure de Paris en été
-    # GitHub cron est en UTC : 12h15, 18h15, 00h15, 06h15 UTC
+    # Toutes les 6 heures.
+    # En été à Paris : 14h15, 20h15, 02h15, 08h15.
+    # GitHub cron utilise UTC.
     - cron: "15 0,6,12,18 * * *"
 
 concurrency:
@@ -50,4 +51,3 @@ jobs:
           SEND_START_MESSAGE: "false"
           SEND_HEARTBEAT_AT_END: "true"
         run: python main.py
-`
