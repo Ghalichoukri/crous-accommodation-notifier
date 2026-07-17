@@ -3,10 +3,7 @@ name: CROUS Telegram Notifier
 on:
   workflow_dispatch:
   schedule:
-    # Toutes les 6 heures.
-    # En été à Paris : 14h15, 20h15, 02h15, 08h15.
-    # GitHub cron utilise UTC.
-    - cron: "15 0,6,12,18 * * *"
+    - cron: "40 1,7,13,19 * * *"
 
 concurrency:
   group: crous-bot
