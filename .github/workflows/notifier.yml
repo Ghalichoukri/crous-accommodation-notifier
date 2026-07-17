@@ -3,7 +3,9 @@ name: CROUS Telegram Notifier
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"
+    # Toutes les 6h, à 14h15, 20h15, 02h15, 08h15 heure de Paris en été
+    # GitHub cron est en UTC : 12h15, 18h15, 00h15, 06h15 UTC
+    - cron: "15 0,6,12,18 * * *"
 
 concurrency:
   group: crous-bot
@@ -12,7 +14,7 @@ concurrency:
 jobs:
   run-crous-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository
@@ -41,10 +43,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CROUS_URLS: ${{ secrets.CROUS_URLS }}
-          CHECK_INTERVAL_SECONDS: "20"
-          RUN_MINUTES: "7"
+          CHECK_INTERVAL_SECONDS: "30"
+          RUN_MINUTES: "350"
           SEND_STATUS_EVERY_CHECK: "false"
           NOTIFY_ALL_AVAILABLE: "true"
           SEND_START_MESSAGE: "false"
-          SEND_HEARTBEAT_AT_END: "false"
+          SEND_HEARTBEAT_AT_END: "true"
         run: python main.py
+`
